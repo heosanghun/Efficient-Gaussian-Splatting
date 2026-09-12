@@ -96,14 +96,31 @@ def generate_local_3dgs(
     samples, face_indices = trimesh.sample.sample_surface(mesh, count=target_splats)
     normals = mesh.face_normals[face_indices]
 
+    # High-resolution photographic texture projection from input photo
+    raw_rgb = np.array(raw_img.convert("RGB")).astype(np.float32) / 255.0
+    r_H, r_W, _ = raw_rgb.shape
+    bx_min, by_min, _ = mesh.bounds[0]
+    bx_max, by_max, _ = mesh.bounds[1]
+
+    u_norm = np.clip((samples[:, 0] - bx_min) / max(bx_max - bx_min, 1e-6), 0.0, 1.0)
+    v_norm = np.clip((by_max - samples[:, 1]) / max(by_max - by_min, 1e-6), 0.0, 1.0)
+
+    u_px = np.clip(np.round(u_norm * (r_W - 1)).astype(int), 0, r_W - 1)
+    v_px = np.clip(np.round(v_norm * (r_H - 1)).astype(int), 0, r_H - 1)
+    photo_colors = raw_rgb[v_px, u_px]
+
     if hasattr(mesh.visual, "vertex_colors") and mesh.visual.vertex_colors is not None:
         face_vertices = mesh.faces[face_indices]
         v_colors = mesh.visual.vertex_colors[:, :3].astype(np.float32)
         if v_colors.max() > 1.0:
             v_colors = v_colors / 255.0
-        colors = np.clip(v_colors[face_vertices].mean(axis=1), 0.0, 1.0)
+        v_col_samples = np.clip(v_colors[face_vertices].mean(axis=1), 0.0, 1.0)
+
+        # Front-facing surfaces get crisp photo colors, back surfaces blend with inferred colors
+        front_weight = np.clip((-normals[:, 2] + 0.2) / 0.5, 0.0, 1.0)[:, None]
+        colors = front_weight * photo_colors + (1.0 - front_weight) * v_col_samples
     else:
-        colors = np.full((target_splats, 3), 0.7, dtype=np.float32)
+        colors = photo_colors
 
     surface_area = mesh.area
     avg_spacing = np.sqrt(max(surface_area / target_splats, 1e-7)) * 1.5
