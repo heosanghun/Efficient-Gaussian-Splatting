@@ -1,0 +1,42 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# C++ / CUDA Build artifacts
+*.obj
+*.o
+*.lib
+*.a
+*.dll
+*.pyd
+build/
+dist/
+*.egg-info/
+rtc/cache/
+FasterGSVDACudaBackend/rtc/cache/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Temporary / Log files
+*.log
+scratch/
+
+# Large third-party docs causing Windows path length issues
+**/cutlass/docs/**
+**/tiny-cuda-nn/dependencies/cutlass/docs/**
