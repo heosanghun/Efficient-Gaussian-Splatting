@@ -1,6 +1,7 @@
 """PLY to .ngsplat binary format converter.
-Converts standard 3D Gaussian Splatting PLY files (from TRELLIS, LGM, or standard 3DGS)
+Converts standard 3D Gaussian Splatting positions, colors, scales, rotations
 into the compact .ngsplat binary layout consumed directly by the WebGL viewer.
+Matches official export_ngsplat.py and splat_decode.glsl.
 """
 
 import math
@@ -11,64 +12,78 @@ import numpy as np
 MAGIC = b"NGSPLAT\n"
 TEX_WIDTH = 2048
 
-
-def fibonacci_sphere(n_samples: int):
-    """Generates roughly uniform points on a unit sphere."""
-    points = []
-    phi = math.pi * (math.sqrt(5.0) - 1.0)  # golden ratio angle
-    for i in range(n_samples):
-        y = 1.0 - (i / float(n_samples - 1)) * 2.0
-        radius = math.sqrt(max(0.0, 1.0 - y * y))
-        theta = phi * i
-        x = math.cos(theta) * radius
-        z = math.sin(theta) * radius
-        points.append((x, y, z))
-    return np.array(points, dtype=np.float32)
+# Exact log-scale constants from splat_decode.glsl
+LN_SCALE_MIN = -12.0
+LN_SCALE_MAX = 9.0
+LN_SCALE_ENCODE = 254.0 / (LN_SCALE_MAX - LN_SCALE_MIN)  # 254.0 / 21.0 = 12.095238095238095
 
 
-def create_demo_ngsplat(out_path: str, num_splats: int = 25000, object_name: str = "Demo 3D Object"):
-    """Creates a beautiful synthetic 3D Gaussian Splatting model in .ngsplat format.
-    Used for instant fallback/demo testing when no external GPU API key is provided.
+def f16_bits(x: np.ndarray) -> np.ndarray:
+    """float32 array -> uint32 array of float16 bit patterns."""
+    return x.astype(np.float16).view(np.uint16).astype(np.uint32)
+
+
+def pack_half2x16(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    return f16_bits(x) | (f16_bits(y) << 16)
+
+
+def encode_scales(s: np.ndarray) -> np.ndarray:
+    """Linear scales [N, 3] -> 8-bit log codes (0 = sentinel for exactly 0)."""
+    code = np.minimum(
+        255,
+        np.round(np.maximum(0.0, (np.log(np.maximum(s, 1e-30)) - LN_SCALE_MIN) * LN_SCALE_ENCODE)) + 1,
+    ).astype(np.uint32)
+    return np.where(s <= 0.0, np.uint32(0), code)
+
+
+def encode_quat_oct(q: np.ndarray) -> np.ndarray:
+    """Unit quaternions [N, 4] as (x, y, z, w) -> 24-bit folded-octahedral codes.
+    Matches export_ngsplat.py and splat_decode.glsl decodeQuatOctXy88R8.
     """
-    n = num_splats
-    tex_height = (n + TEX_WIDTH - 1) // TEX_WIDTH
-    padded_n = tex_height * TEX_WIDTH
+    q = np.where(q[:, 3:4] < 0.0, -q, q)
+    half_theta = np.arccos(np.clip(q[:, 3], -1.0, 1.0))
+    theta = 2.0 * half_theta
+    s = np.sin(half_theta)
+    degenerate = np.abs(s) < 1e-6
+    safe_s = np.where(degenerate, 1.0, s)
+    axis = q[:, :3] / safe_s[:, None]
+    axis[degenerate] = [1.0, 0.0, 0.0]
 
-    # Generate an interesting 3D shape (e.g. torus / teapot / sphere knot)
-    t = np.linspace(0, 4 * np.pi, n, dtype=np.float32)
-    # Trefoil knot shape + shell
-    knot_x = np.sin(t) + 2 * np.sin(2 * t)
-    knot_y = np.cos(t) - 2 * np.cos(2 * t)
-    knot_z = -np.sin(3 * t)
+    total = np.abs(axis).sum(axis=1)
+    pu = axis[:, 0] / total
+    pv = axis[:, 1] / total
+    fold = axis[:, 2] < 0.0
+    pu_folded = (1.0 - np.abs(pv)) * np.where(pu >= 0.0, 1.0, -1.0)
+    pv_folded = (1.0 - np.abs(pu)) * np.where(pv >= 0.0, 1.0, -1.0)
+    pu = np.where(fold, pu_folded, pu)
+    pv = np.where(fold, pv_folded, pv)
 
-    noise = np.random.randn(n, 3).astype(np.float32) * 0.15
-    positions = np.stack([knot_x, knot_y, knot_z], axis=-1) * 0.4 + noise
+    def q8(v):
+        return np.round(np.clip(v, 0.0, 255.0)).astype(np.uint32)
 
-    # Colors: vibrant rainbow gradient
-    r = 0.5 + 0.5 * np.sin(t)
-    g = 0.5 + 0.5 * np.sin(t + 2.0)
-    b = 0.5 + 0.5 * np.cos(t * 2.0)
-    colors = np.stack([r, g, b], axis=-1)
+    quant_u = q8((pu * 0.5 + 0.5) * 255.0)
+    quant_v = q8((pv * 0.5 + 0.5) * 255.0)
+    angle = q8(theta / math.pi * 255.0)
+    return (angle << 16) | (quant_v << 8) | quant_u
 
-    # Opacities
-    opacities = np.full(n, 0.95, dtype=np.float32)
 
-    # Scales (log-scale)
-    scales = np.full((n, 3), -3.5, dtype=np.float32)
-
-    # Rotations (quaternions)
-    rotations = np.zeros((n, 4), dtype=np.float32)
-    rotations[:, 0] = 1.0  # w = 1
-
-    return pack_to_ngsplat(
-        out_path=out_path,
-        positions=positions,
-        colors=colors,
-        opacities=opacities,
-        scales=scales,
-        rotations=rotations,
-        model_type="neural",
+def pack_splat_texture(means, scales, quats, base_code8, opacity8, n_padded):
+    """Build the RGBA32UI splatData payload [P, 4] (uint32)."""
+    n = means.shape[0]
+    words = np.zeros((n_padded, 4), dtype=np.uint32)
+    # word 0: RGBA8
+    words[:n, 0] = (
+        base_code8[:, 0] | (base_code8[:, 1] << 8) | (base_code8[:, 2] << 16) | (opacity8 << 24)
     )
+    # word 1: posX (fp16) | (posY (fp16) << 16)
+    words[:n, 1] = pack_half2x16(means[:, 0], means[:, 1])
+    # word 2: posZ (fp16) | (quatU (8b) << 16) | (quatV (8b) << 24)
+    quat_code = encode_quat_oct(quats)
+    words[:n, 2] = f16_bits(means[:, 2]) | ((quat_code & 0xFF) << 16) | (((quat_code >> 8) & 0xFF) << 24)
+    # word 3: scaleX (8b) | (scaleY (8b) << 8) | (scaleZ (8b) << 16) | (quatAngle (8b) << 24)
+    scale_code = encode_scales(scales)
+    words[:n, 3] = scale_code[:, 0] | (scale_code[:, 1] << 8) | (scale_code[:, 2] << 16) | ((quat_code >> 16) << 24)
+    return words
 
 
 def pack_to_ngsplat(
@@ -78,93 +93,56 @@ def pack_to_ngsplat(
     opacities: np.ndarray,
     scales: np.ndarray,
     rotations: np.ndarray,
+    cam_center: np.ndarray = None,
+    cam_up: np.ndarray = None,
+    cam_distance: float = 3.5,
     model_type: str = "neural",
 ):
-    """Packs raw Gaussian arrays into valid .ngsplat binary format."""
+    """Packs raw Gaussian arrays into valid .ngsplat binary format.
+    - positions: [N, 3] float32
+    - colors: [N, 3] float32 in [0, 1]
+    - opacities: [N] float32 in [0, 1]
+    - scales: [N, 3] float32 linear scales
+    - rotations: [N, 4] float32 unit quaternions as (x, y, z, w)
+    """
     n = positions.shape[0]
     tex_height = (n + TEX_WIDTH - 1) // TEX_WIDTH
-    padded_n = tex_height * TEX_WIDTH
+    n_padded = tex_height * TEX_WIDTH
 
-    # Bounding center and camera setup
-    center = positions.mean(axis=0)
-    max_extent = np.linalg.norm(positions - center, axis=-1).max()
-    distance = max(max_extent * 2.5, 2.0)
-    up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+    if cam_center is None:
+        cam_center = np.median(positions, axis=0).astype(np.float32)
+    if cam_up is None:
+        cam_up = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    cam_up = cam_up / (np.linalg.norm(cam_up) + 1e-6)
 
-    # Pack splatData (RGBA32UI, 1 texel/splat):
-    # Word 0: base RGB8 (pre-activation d = c - 0.5) + opacity A8
-    # Words 1-3: xyz fp16 + quat 24b octahedral + log-scales 3x8b
-    splat_words = np.zeros((tex_height, TEX_WIDTH, 4), dtype=np.uint32)
+    # 1. Base color: 8-bit [0..255]
+    # In capture_common.glsl: d = code8 * baseScale + baseOffset; baseColor = max(d, 0.0).
+    # With baseScale = 1.0/255.0 and baseOffset = 0.0, baseColor = colors in [0, 1] exactly!
+    base_code = np.round(np.clip(colors, 0.0, 1.0) * 255.0).astype(np.uint32)
+    opacity8 = np.round(np.clip(opacities, 0.0, 1.0) * 255.0).astype(np.uint32)
 
-    # Colors to 8-bit [0..255]
-    c_norm = np.clip(colors * 255.0, 0.0, 255.0).astype(np.uint8)
-    a_norm = np.clip(opacities * 255.0, 0.0, 255.0).astype(np.uint8)
+    # 2. Pack splatData texture
+    splat_words = pack_splat_texture(positions, scales, rotations, base_code, opacity8, n_padded)
 
-    word0 = (
-        c_norm[:, 0].astype(np.uint32)
-        | (c_norm[:, 1].astype(np.uint32) << 8)
-        | (c_norm[:, 2].astype(np.uint32) << 16)
-        | (a_norm.astype(np.uint32) << 24)
-    )
-
-    # Positions to float16 bits
-    pos_fp16 = positions.astype(np.float16).view(np.uint16)
-    word1 = pos_fp16[:, 0].astype(np.uint32) | (pos_fp16[:, 1].astype(np.uint32) << 16)
-
-    # Octahedral folding of rotation quaternions into 24 bits
-    # Simple projection for demo
-    q = rotations / np.linalg.norm(rotations, axis=-1, keepdims=True)
-    oct_u = np.clip(((q[:, 0] / (np.abs(q).sum(axis=-1) + 1e-6)) + 1.0) * 0.5 * 4095.0, 0, 4095).astype(np.uint32)
-    oct_v = np.clip(((q[:, 1] / (np.abs(q).sum(axis=-1) + 1e-6)) + 1.0) * 0.5 * 4095.0, 0, 4095).astype(np.uint32)
-    quat24 = oct_u | (oct_v << 12)
-
-    word2 = pos_fp16[:, 2].astype(np.uint32) | ((quat24 & 0xFFFF) << 16)
-
-    # Scale encoding: 3x8 bits
-    s_norm = np.clip((scales + 6.0) / 6.0 * 255.0, 0.0, 255.0).astype(np.uint8)
-    scale24 = (
-        s_norm[:, 0].astype(np.uint32)
-        | (s_norm[:, 1].astype(np.uint32) << 8)
-        | (s_norm[:, 2].astype(np.uint32) << 16)
-    )
-
-    word3 = ((quat24 >> 16) & 0xFF) | (scale24 << 8)
-
-    flat_words = splat_words.reshape(-1, 4)
-    flat_words[:n, 0] = word0
-    flat_words[:n, 1] = word1
-    flat_words[:n, 2] = word2
-    flat_words[:n, 3] = word3
-
-    # Header parameters
-    # flags: bit 2 = baked layer0, bit 3-4 = model type (0: neural, 1: sh)
-    flags = 4  # neural baked
+    # 3. Model header settings (Neural baked, 16 neurons, 2 hidden layers)
+    flags = 4  # bit 2 = baked layer-0 layout
     header_model_dims = 16
     header_frequencies = 1
-    degree_mask = 0b1110  # degrees 1..3 active (3 + 5 + 7 = 15 -> l0In = 16)
+    degree_mask = 14  # degrees 1..3 active (0b1110)
     color_activation = 0  # relu
     residual_activation = 1  # tanh
     header_neurons = 16
     nHiddenLayers = 2
-
-    # Weight texels: fp16 weights for tiny MLP
-    # Formula for baked: (l0In/4)*neurons + (nHidden-1)*(neurons/4)*neurons + (neurons/4)*3
-    # = (16/4)*16 + (2-1)*(16/4)*16 + (16/4)*3 = 64 + 64 + 12 = 140 texels
     n_weight_texels = 140
-    weight_texels = np.zeros(n_weight_texels * 4, dtype=np.float16)
-    weight_texels[:] = np.random.randn(n_weight_texels * 4).astype(np.float16) * 0.05
 
-    # Parameter textures (h0_static: 16 fp16 values per splat -> 2 RGBA32UI textures)
-    param_tex1 = np.zeros((tex_height, TEX_WIDTH, 4), dtype=np.uint32)
-    param_tex2 = np.zeros((tex_height, TEX_WIDTH, 4), dtype=np.uint32)
-    feats = np.random.randn(n, 16).astype(np.float16).view(np.uint16)
-    flat_param1 = param_tex1.reshape(-1, 4)
-    flat_param2 = param_tex2.reshape(-1, 4)
-    for i in range(4):
-        flat_param1[:n, i] = feats[:, i * 2].astype(np.uint32) | (feats[:, i * 2 + 1].astype(np.uint32) << 16)
-        flat_param2[:n, i] = feats[:, 8 + i * 2].astype(np.uint32) | (feats[:, 8 + i * 2 + 1].astype(np.uint32) << 16)
+    # Weight texels: all zeros -> neural residual color evaluates to exactly 0.0
+    weight_texels = np.zeros((n_weight_texels, 4), dtype=np.uint16)
 
-    # Write file
+    # Parameter textures (2 RGBA32UI textures for 16-dim features, all zeros)
+    param_tex1 = np.zeros((n_padded, 4), dtype=np.uint32)
+    param_tex2 = np.zeros((n_padded, 4), dtype=np.uint32)
+
+    # 4. Write binary file
     with open(out_path, "wb") as f:
         f.write(MAGIC)
         f.write(
@@ -183,10 +161,11 @@ def pack_to_ngsplat(
                 flags,
             )
         )
-        f.write(struct.pack("<2f", 1.0, -0.5))  # base scale, offset
-        f.write(struct.pack("<3f", *center))
-        f.write(struct.pack("<3f", *up))
-        f.write(struct.pack("<f", float(distance)))
+        # d_scale, d_min: in shader, d = code8 * d_scale + d_min -> code8 / 255.0 + 0.0
+        f.write(struct.pack("<2f", 1.0 / 255.0, 0.0))
+        f.write(struct.pack("<3f", *cam_center.tolist()))
+        f.write(struct.pack("<3f", *cam_up.tolist()))
+        f.write(struct.pack("<f", float(cam_distance)))
         f.write(struct.pack("<I", 0))  # 0 test cameras
         f.write(struct.pack("<I", n_weight_texels))
         f.write(weight_texels.tobytes())
@@ -195,6 +174,50 @@ def pack_to_ngsplat(
         f.write(param_tex2.tobytes())
 
     return out_path
+
+
+def create_demo_ngsplat(out_path: str, num_splats: int = 35000, object_name: str = "Demo 3D Object"):
+    """Creates a beautiful synthetic 3D Gaussian Splatting model in .ngsplat format."""
+    n = num_splats
+
+    # Trefoil knot shape
+    t = np.linspace(0, 4 * np.pi, n, dtype=np.float32)
+    knot_x = (np.sin(t) + 2 * np.sin(2 * t)) * 0.25
+    knot_y = (np.cos(t) - 2 * np.cos(2 * t)) * 0.25
+    knot_z = (-np.sin(3 * t)) * 0.25
+
+    noise = np.random.randn(n, 3).astype(np.float32) * 0.015
+    positions = np.stack([knot_x, knot_y, knot_z], axis=-1) + noise
+
+    # Colors: vibrant rainbow gradient
+    r = 0.5 + 0.5 * np.sin(t)
+    g = 0.5 + 0.5 * np.sin(t + 2.0)
+    b = 0.5 + 0.5 * np.cos(t * 2.0)
+    colors = np.stack([r, g, b], axis=-1).astype(np.float32)
+
+    opacities = np.full(n, 0.95, dtype=np.float32)
+
+    # Tangential scales ~ 0.008, normal scale ~ 0.002
+    scales = np.zeros((n, 3), dtype=np.float32)
+    scales[:, 0] = 0.008
+    scales[:, 1] = 0.008
+    scales[:, 2] = 0.002
+
+    # Quaternions: identity (0, 0, 0, 1)
+    rotations = np.zeros((n, 4), dtype=np.float32)
+    rotations[:, 3] = 1.0
+
+    return pack_to_ngsplat(
+        out_path=out_path,
+        positions=positions,
+        colors=colors,
+        opacities=opacities,
+        scales=scales,
+        rotations=rotations,
+        cam_center=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        cam_up=np.array([0.0, 0.0, 1.0], dtype=np.float32),
+        cam_distance=3.0,
+    )
 
 
 def parse_ply_and_convert(ply_path: str, out_ngsplat_path: str) -> str:
@@ -213,13 +236,17 @@ def parse_ply_and_convert(ply_path: str, out_ngsplat_path: str) -> str:
         colors = np.stack([r, g, b], axis=-1).astype(np.float32)
 
         # Opacity (sigmoid)
-        opacities = 1.0 / (1.0 + np.exp(-v["opacity"])).astype(np.float32)
+        opacities = (1.0 / (1.0 + np.exp(-v["opacity"]))).astype(np.float32)
 
-        # Scales (log scale in PLY)
-        scales = np.stack([v["scale_0"], v["scale_1"], v["scale_2"]], axis=-1).astype(np.float32)
+        # Scales (PLY stores log-scale -> convert to linear scale)
+        log_scales = np.stack([v["scale_0"], v["scale_1"], v["scale_2"]], axis=-1).astype(np.float32)
+        scales = np.exp(np.clip(log_scales, -11.0, 5.0))
 
-        # Rotations (normalized quaternion)
-        rotations = np.stack([v["rot_0"], v["rot_1"], v["rot_2"], v["rot_3"]], axis=-1).astype(np.float32)
+        # Rotations: PLY stores (w, x, y, z) -> convert to (x, y, z, w)
+        rotations = np.stack([v["rot_1"], v["rot_2"], v["rot_3"], v["rot_0"]], axis=-1).astype(np.float32)
+        norm_r = np.linalg.norm(rotations, axis=-1, keepdims=True)
+        norm_r[norm_r == 0] = 1.0
+        rotations /= norm_r
 
         return pack_to_ngsplat(
             out_path=out_ngsplat_path,
@@ -228,7 +255,6 @@ def parse_ply_and_convert(ply_path: str, out_ngsplat_path: str) -> str:
             opacities=opacities,
             scales=scales,
             rotations=rotations,
-            model_type="neural",
         )
     except Exception as e:
         print(f"PLY parsing error: {e}, falling back to demo generator")

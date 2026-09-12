@@ -1,2 +1,8 @@
 *
 !.gitignore
+!neural/
+!sh/
+!nasg/
+!neural/*.ngsplat
+!sh/*.ngsplat
+!nasg/*.ngsplat

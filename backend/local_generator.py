@@ -11,9 +11,6 @@ WORKSPACE = Path(r"e:\00000000000000000_D드라이브 파일 이동\AI\Compact N
 sys.path.append(str(WORKSPACE))
 sys.path.append(str(WORKSPACE / "models" / "TripoSR"))
 
-from tsr.system import TSR
-from tsr.utils import remove_background, resize_foreground
-import rembg
 from backend.ply_to_ngsplat import pack_to_ngsplat
 
 _MODEL = None
@@ -26,6 +23,7 @@ def get_model():
     """Lazy-loads and caches the TripoSR model on GPU."""
     global _MODEL
     if _MODEL is None:
+        from tsr.system import TSR
         device = get_device()
         print(f"Loading TripoSR onto {device}...")
         t0 = time.time()
@@ -43,6 +41,7 @@ def get_rembg_session():
     """Lazy-loads and caches the rembg session."""
     global _REMBG_SESSION
     if _REMBG_SESSION is None:
+        import rembg
         _REMBG_SESSION = rembg.new_session()
     return _REMBG_SESSION
 
@@ -56,9 +55,13 @@ def generate_local_3dgs(
     """Generates 3D Gaussian Splatting scene (.ngsplat) directly on RTX 4090."""
     t0 = time.time()
     device = get_device()
+    from tsr.utils import remove_background, resize_foreground
     model = get_model()
 
     raw_img = Image.open(image_path).convert("RGBA")
+    if max(raw_img.size) > 1024:
+        raw_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+
     img_np = np.array(raw_img)
     has_alpha = raw_img.mode == "RGBA" and (img_np[:, :, 3].min() < 240)
 
@@ -83,37 +86,46 @@ def generate_local_3dgs(
     mesh = meshes[0]
     mesh_sec = time.time() - t_mesh
 
+    # Center mesh at origin and normalize scale to radius 0.85
+    mesh.vertices -= mesh.bounding_box.centroid
+    max_dist = np.linalg.norm(mesh.vertices, axis=-1).max()
+    if max_dist > 1e-4:
+        mesh.vertices /= (max_dist / 0.85)
+
     target_splats = min(max(num_splats, len(mesh.vertices)), 80000)
     samples, face_indices = trimesh.sample.sample_surface(mesh, count=target_splats)
     normals = mesh.face_normals[face_indices]
 
     if hasattr(mesh.visual, "vertex_colors") and mesh.visual.vertex_colors is not None:
         face_vertices = mesh.faces[face_indices]
-        v_colors = mesh.visual.vertex_colors[:, :3].astype(np.float32) / 255.0
-        colors = v_colors[face_vertices].mean(axis=1)
+        v_colors = mesh.visual.vertex_colors[:, :3].astype(np.float32)
+        if v_colors.max() > 1.0:
+            v_colors = v_colors / 255.0
+        colors = np.clip(v_colors[face_vertices].mean(axis=1), 0.0, 1.0)
     else:
         colors = np.full((target_splats, 3), 0.7, dtype=np.float32)
 
     surface_area = mesh.area
-    avg_spacing = np.sqrt(max(surface_area / target_splats, 1e-6)) * 1.3
-    log_spacing = np.log(max(avg_spacing, 1e-5))
+    avg_spacing = np.sqrt(max(surface_area / target_splats, 1e-7)) * 1.5
 
+    # Linear scales: tangential major/minor + thin normal thickness
     scales = np.zeros((target_splats, 3), dtype=np.float32)
-    scales[:, 0] = log_spacing
-    scales[:, 1] = log_spacing
-    scales[:, 2] = log_spacing - 1.2
+    scales[:, 0] = avg_spacing
+    scales[:, 1] = avg_spacing
+    scales[:, 2] = avg_spacing * 0.25
 
     opacities = np.full(target_splats, 0.95, dtype=np.float32)
 
-    z_axis = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-    cross_prod = np.cross(z_axis, normals)
-    dot_prod = normals[:, 2]
-
+    # Unit quaternions (x, y, z, w) rotating [0, 0, 1] to surface normal
     rotations = np.zeros((target_splats, 4), dtype=np.float32)
-    rotations[:, 0] = 1.0 + dot_prod
-    rotations[:, 1] = cross_prod[:, 0]
-    rotations[:, 2] = cross_prod[:, 1]
-    rotations[:, 3] = cross_prod[:, 2]
+    rotations[:, 0] = -normals[:, 1]
+    rotations[:, 1] = normals[:, 0]
+    rotations[:, 2] = 0.0
+    rotations[:, 3] = 1.0 + normals[:, 2]
+
+    antiparallel = (1.0 + normals[:, 2]) < 1e-6
+    rotations[antiparallel] = [1.0, 0.0, 0.0, 0.0]
+
     norm_q = np.linalg.norm(rotations, axis=-1, keepdims=True)
     norm_q[norm_q == 0] = 1.0
     rotations /= norm_q
@@ -125,6 +137,9 @@ def generate_local_3dgs(
         opacities=opacities,
         scales=scales,
         rotations=rotations,
+        cam_center=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        cam_up=np.array([0.0, 0.0, 1.0], dtype=np.float32),
+        cam_distance=3.5,
         model_type="neural",
     )
 
