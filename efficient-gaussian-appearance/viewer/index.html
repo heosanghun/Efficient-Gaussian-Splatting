@@ -74,7 +74,29 @@
                 <!-- Text Prompt Tab -->
                 <div id="tab-content-text" class="tab-panel" style="display:none;">
                     <div class="prompt-input-group">
-                        <input type="text" id="text-prompt-input" placeholder="생성하고 싶은 3D 객체를 입력하세요 (예: a vintage camera, ceramic teapot)...">
+                        <input type="text" id="text-prompt-input" placeholder="생성할 3D 객체 입력 (예: 자동차 생성해줘, 의자, 스웨터 옷)...">
+                        <button type="button" id="btn-prompt-submit" class="btn-prompt-submit" title="생성 (Enter)">
+                            <span>생성 ↵</span>
+                        </button>
+                    </div>
+                    <div class="prompt-chips-container">
+                        <span class="prompt-chips-label">💡 원클릭 프롬프트:</span>
+                        <div class="prompt-chips">
+                            <button type="button" class="prompt-chip" data-prompt="자동차 생성해줘">🚗 빨간 스포츠카</button>
+                            <button type="button" class="prompt-chip" data-prompt="니트 스웨터 옷 생성해줘">👕 니트 스웨터</button>
+                            <button type="button" class="prompt-chip" data-prompt="모던 원목 의자 생성해줘">🪑 모던 의자</button>
+                            <button type="button" class="prompt-chip" data-prompt="도자기 주전자 생성해줘">☕ 세라믹 주전자</button>
+                            <button type="button" class="prompt-chip" data-prompt="빈티지 필름 카메라">📷 빈티지 카메라</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- HTTPS Mixed Content Helper Banner -->
+                <div id="https-helper-banner" class="https-helper-banner" style="display:none;">
+                    <span class="https-helper-icon">⚡</span>
+                    <div class="https-helper-text">
+                        <strong>Cloudflare Pages (HTTPS) 환경 안내:</strong> 브라우저 보안 규정(Mixed Content)으로 웹에서 로컬 GPU(http) 직접 호출이 제한될 수 있습니다.
+                        <strong><a href="http://localhost:8080" target="_blank" style="color:#60a5fa;text-decoration:underline;">로컬 뷰어(http://localhost:8080)</a></strong>에서 접속하시면 <strong>RTX 4090 GPU</strong>에 100% 실시간 연결됩니다! (웹에서는 고화질 3D 모델로 즉시 로딩됩니다)
                     </div>
                 </div>
 

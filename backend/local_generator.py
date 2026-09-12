@@ -42,7 +42,7 @@ def get_rembg_session():
     global _REMBG_SESSION
     if _REMBG_SESSION is None:
         import rembg
-        _REMBG_SESSION = rembg.new_session()
+        _REMBG_SESSION = rembg.new_session(model_name="u2net")
     return _REMBG_SESSION
 
 def generate_local_3dgs(
@@ -59,8 +59,8 @@ def generate_local_3dgs(
     model = get_model()
 
     raw_img = Image.open(image_path).convert("RGBA")
-    if max(raw_img.size) > 1024:
-        raw_img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    if max(raw_img.size) > 512:
+        raw_img.thumbnail((512, 512), Image.Resampling.LANCZOS)
 
     img_np = np.array(raw_img)
     has_alpha = raw_img.mode == "RGBA" and (img_np[:, :, 3].min() < 240)

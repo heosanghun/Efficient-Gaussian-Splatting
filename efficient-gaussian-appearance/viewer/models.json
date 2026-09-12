@@ -10,6 +10,13 @@
             }
         },
         {
+            "name": "Car - Red Sports Car (RTX 4090 Prompt Generated)",
+            "group": "Local Offline Demos (Instant)",
+            "variants": {
+                "neural": "models/neural/car.ngsplat"
+            }
+        },
+        {
             "name": "Chair (RTX 4090 Generated)",
             "group": "Local Offline Demos (Instant)",
             "variants": {

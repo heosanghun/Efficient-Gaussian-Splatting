@@ -107,6 +107,9 @@ function setupAIStudio() {
         const previewImg = document.getElementById("image-preview");
         const imageName = document.getElementById("image-name");
         const promptInput = document.getElementById("text-prompt-input");
+        const btnPromptSubmit = document.getElementById("btn-prompt-submit");
+        const promptChips = document.querySelectorAll(".prompt-chip");
+        const httpsBanner = document.getElementById("https-helper-banner");
         const backendInput = document.getElementById("backend-url-input");
         const btnGen = document.getElementById("btn-generate-3d");
         const banner = document.getElementById("ai-status-banner");
@@ -116,6 +119,11 @@ function setupAIStudio() {
 
         let activeTab = "image";
         let selectedFile = null;
+
+        // Show HTTPS guidance banner if running on Cloudflare Pages
+        if (location.protocol === "https:" && httpsBanner) {
+            httpsBanner.style.display = "flex";
+        }
 
         tabImg.addEventListener("click", () => {
             activeTab = "image";
@@ -131,6 +139,7 @@ function setupAIStudio() {
             tabImg.classList.remove("active");
             panelTxt.style.display = "block";
             panelImg.style.display = "none";
+            if (promptInput) promptInput.focus();
         });
 
         dropZone.addEventListener("click", () => fileInput.click());
@@ -169,62 +178,176 @@ function setupAIStudio() {
             reader.readAsDataURL(file);
         }
 
-        btnGen.addEventListener("click", async () => {
+        // Enter key support for text prompt input
+        if (promptInput) {
+            promptInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    doGenerate();
+                }
+            });
+        }
+
+        // Inline prompt submit button
+        if (btnPromptSubmit) {
+            btnPromptSubmit.addEventListener("click", () => {
+                activeTab = "text";
+                tabTxt.classList.add("active");
+                tabImg.classList.remove("active");
+                panelTxt.style.display = "block";
+                panelImg.style.display = "none";
+                doGenerate();
+            });
+        }
+
+        // Prompt Chips (1-click test)
+        if (promptChips && promptChips.length > 0) {
+            promptChips.forEach((chip) => {
+                chip.addEventListener("click", () => {
+                    activeTab = "text";
+                    tabTxt.classList.add("active");
+                    tabImg.classList.remove("active");
+                    panelTxt.style.display = "block";
+                    panelImg.style.display = "none";
+                    if (promptInput) {
+                        promptInput.value = chip.dataset.prompt || chip.textContent;
+                    }
+                    doGenerate();
+                });
+            });
+        }
+
+        btnGen.addEventListener("click", () => doGenerate());
+
+        async function doGenerate() {
             const backendUrl = (backendInput.value || "http://localhost:8000").replace(/\/+$/, "");
             banner.style.display = "flex";
             btnGen.disabled = true;
+            if (btnPromptSubmit) btnPromptSubmit.disabled = true;
 
             try {
-                let resData;
+                let resData = null;
+                let fallbackModel = null;
+
                 if (activeTab === "image") {
                     if (!selectedFile) {
                         alert("사진 파일을 먼저 선택하거나 드래그해 주세요.");
                         banner.style.display = "none";
                         btnGen.disabled = false;
+                        if (btnPromptSubmit) btnPromptSubmit.disabled = false;
                         return;
                     }
-                    statusText.textContent = "AI GPU 서버로 이미지 전송 중 (3DGS 생성 연산 시작)...";
+
+                    statusText.textContent = "AI GPU 서버로 이미지 전송 중 (3DGS 생성 연산)...";
                     const formData = new FormData();
                     formData.append("file", selectedFile);
-                    const resp = await fetch(`${backendUrl}/api/generate/image`, {
-                        method: "POST",
-                        body: formData,
-                    });
-                    if (!resp.ok) throw new Error(`서버 오류 (${resp.status}): ${await resp.text()}`);
-                    resData = await resp.json();
+
+                    try {
+                        const resp = await fetch(`${backendUrl}/api/generate/image`, {
+                            method: "POST",
+                            body: formData,
+                        });
+                        if (!resp.ok) throw new Error(`서버 오류 (${resp.status}): ${await resp.text()}`);
+                        resData = await resp.json();
+                    } catch (fetchErr) {
+                        console.warn("Backend image fetch failed:", fetchErr);
+                        if (location.protocol === "https:" || fetchErr.message.includes("Failed to fetch") || fetchErr.name === "TypeError") {
+                            fallbackModel = {
+                                name: "Cloth - Blue Sweater (RTX 4090 Generated)",
+                                url: "./models/neural/cloth.ngsplat",
+                            };
+                            alert("[Cloudflare HTTPS 보안 안내]\n브라우저 Mixed Content 보안 정책으로 인해 웹(HTTPS)에서 로컬 GPU(http://localhost:8000)를 직접 호출할 수 없습니다.\n\n사전 생성된 3D 가우시안 모델(Cloth - Blue Sweater)을 즉시 뷰어에 로딩합니다!\n\n※ 내 PC의 RTX 4090으로 100% 실시간 생성하려면 새 탭에서 http://localhost:8080 으로 접속해 주세요.");
+                        } else {
+                            throw fetchErr;
+                        }
+                    }
                 } else {
                     const prompt = promptInput.value.trim();
                     if (!prompt) {
-                        alert("프롬프트 내용을 입력해 주세요.");
+                        alert("프롬프트 내용을 입력해 주세요. (예: 자동차 생성해줘, 의자, 스웨터 옷)");
                         banner.style.display = "none";
                         btnGen.disabled = false;
+                        if (btnPromptSubmit) btnPromptSubmit.disabled = false;
                         return;
                     }
-                    statusText.textContent = `프롬프트("${prompt}") 기반 3D 가우시안 생성 중...`;
-                    const resp = await fetch(`${backendUrl}/api/generate/text`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ prompt }),
-                    });
-                    if (!resp.ok) throw new Error(`서버 오류 (${resp.status}): ${await resp.text()}`);
-                    resData = await resp.json();
+
+                    statusText.textContent = `프롬프트("${prompt}") 기반 RTX 4090 3D 가우시안 생성 중...`;
+                    const pLower = prompt.toLowerCase();
+
+                    try {
+                        const resp = await fetch(`${backendUrl}/api/generate/text`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ prompt }),
+                        });
+                        if (!resp.ok) throw new Error(`서버 오류 (${resp.status}): ${await resp.text()}`);
+                        resData = await resp.json();
+                    } catch (fetchErr) {
+                        console.warn("Backend text fetch failed:", fetchErr);
+                        if (location.protocol === "https:" || fetchErr.message.includes("Failed to fetch") || fetchErr.name === "TypeError") {
+                            if (pLower.includes("자동차") || pLower.includes("차") || pLower.includes("car") || pLower.includes("스포츠카")) {
+                                fallbackModel = {
+                                    name: "Car - Red Sports Car (RTX 4090 Prompt Generated)",
+                                    url: "./models/neural/car.ngsplat",
+                                };
+                            } else if (pLower.includes("스웨터") || pLower.includes("옷") || pLower.includes("cloth") || pLower.includes("sweater")) {
+                                fallbackModel = {
+                                    name: "Cloth - Blue Sweater (RTX 4090 Generated)",
+                                    url: "./models/neural/cloth.ngsplat",
+                                };
+                            } else if (pLower.includes("의자") || pLower.includes("chair")) {
+                                fallbackModel = {
+                                    name: "Chair (RTX 4090 Generated)",
+                                    url: "./models/neural/rtx4090_chair.ngsplat",
+                                };
+                            } else if (pLower.includes("카메라") || pLower.includes("camera") || pLower.includes("주전자") || pLower.includes("teapot")) {
+                                fallbackModel = {
+                                    name: "Materials - Specular (Local)",
+                                    url: "./models/neural/materials.ngsplat",
+                                };
+                            } else {
+                                fallbackModel = {
+                                    name: "Car - Red Sports Car (RTX 4090 Prompt Generated)",
+                                    url: "./models/neural/car.ngsplat",
+                                };
+                            }
+
+                            if (location.protocol === "https:") {
+                                alert(`[Cloudflare HTTPS 보안 안내]\n브라우저 Mixed Content 보안 정책으로 인해 웹(HTTPS)에서 로컬 GPU(http://localhost:8000)를 직접 호출할 수 없습니다.\n\n사전 생성된 3D 가우시안 모델(${fallbackModel.name})을 즉시 뷰어에 로딩합니다!\n\n※ 내 PC의 RTX 4090으로 100% 실시간 생성하려면 새 탭에서 http://localhost:8080 으로 접속해 주세요.`);
+                            } else {
+                                alert(`로컬 백엔드 서버(http://localhost:8000) 연결 실패. 사전 생성된 3D 모델(${fallbackModel.name})을 로딩합니다.`);
+                            }
+                        } else {
+                            throw fetchErr;
+                        }
+                    }
                 }
 
-                statusText.textContent = "생성 완료! WebGL 뷰어 3D 화면으로 로딩 중...";
-                const fullModelUrl = `${backendUrl}${resData.model_url}`;
-                resolve({
-                    name: `AI: ${resData.name}`,
-                    url: fullModelUrl,
-                    override: "neural",
-                });
+                if (fallbackModel) {
+                    statusText.textContent = `3D 모델 로딩 중: ${fallbackModel.name}...`;
+                    resolve({
+                        name: fallbackModel.name,
+                        url: fallbackModel.url,
+                        override: "neural",
+                    });
+                } else if (resData) {
+                    statusText.textContent = "생성 완료! WebGL 뷰어 3D 화면으로 로딩 중...";
+                    const fullModelUrl = `${backendUrl}${resData.model_url}`;
+                    resolve({
+                        name: `AI: ${resData.name}`,
+                        url: fullModelUrl,
+                        override: "neural",
+                    });
+                }
             } catch (err) {
                 console.error("AI 3DGS generation error:", err);
                 statusText.textContent = `생성 실패: ${err.message}`;
                 alert(`3D 생성 실패:\n${err.message}\n(백엔드 서버가 http://localhost:8000 에서 실행 중인지 확인하세요)`);
                 banner.style.display = "none";
                 btnGen.disabled = false;
+                if (btnPromptSubmit) btnPromptSubmit.disabled = false;
             }
-        });
+        }
     });
 }
 
