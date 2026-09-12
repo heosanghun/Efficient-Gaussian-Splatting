@@ -40,3 +40,6 @@ scratch/
 # Large third-party docs causing Windows path length issues
 **/cutlass/docs/**
 **/tiny-cuda-nn/dependencies/cutlass/docs/**
+
+# Generated models
+backend/generated_models/

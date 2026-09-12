@@ -46,6 +46,56 @@
                 <a href="https://github.com/nerficg-project/efficient-gaussian-appearance/tree/main/viewer">Viewer code</a>
             </div>
         </div>
+        <div id="ai-studio-section" class="ai-studio-container">
+            <div class="ai-studio-header">
+                <span class="ai-studio-badge">✨ AI 3DGS Studio</span>
+                <span class="ai-studio-title">사진 / 텍스트 프롬프트로 나만의 3D 가우시안 생성</span>
+            </div>
+            <div class="ai-studio-body">
+                <div class="ai-studio-tabs">
+                    <button type="button" class="ai-tab active" id="tab-btn-image">📸 사진 업로드 (Drag & Drop)</button>
+                    <button type="button" class="ai-tab" id="tab-btn-text">✍️ 텍스트 프롬프트</button>
+                </div>
+
+                <!-- Image Upload Tab -->
+                <div id="tab-content-image" class="tab-panel active">
+                    <div id="drop-zone" class="drop-zone">
+                        <input type="file" id="image-file-input" accept="image/*" style="display:none;">
+                        <div class="drop-zone-icon">📷</div>
+                        <div class="drop-zone-text">사진을 여기에 드래그하거나 <strong>클릭하여 파일 선택</strong></div>
+                        <div class="drop-zone-hint">JPG, PNG, WebP (단일 물체 또는 피사체 사진 권장)</div>
+                        <div id="image-preview-container" class="image-preview-container" style="display:none;">
+                            <img id="image-preview" src="" alt="Preview">
+                            <span id="image-name"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Text Prompt Tab -->
+                <div id="tab-content-text" class="tab-panel" style="display:none;">
+                    <div class="prompt-input-group">
+                        <input type="text" id="text-prompt-input" placeholder="생성하고 싶은 3D 객체를 입력하세요 (예: a vintage camera, ceramic teapot)...">
+                    </div>
+                </div>
+
+                <div class="ai-studio-controls">
+                    <div class="api-settings">
+                        <label for="backend-url-input">GPU 백엔드 API:</label>
+                        <input type="text" id="backend-url-input" value="http://localhost:8000" placeholder="http://localhost:8000">
+                    </div>
+                    <button type="button" id="btn-generate-3d" class="btn-generate-3d">
+                        <span>🚀 3DGS 생성 및 뷰어 로드</span>
+                    </button>
+                </div>
+
+                <!-- Generation Status Banner -->
+                <div id="ai-status-banner" class="ai-status-banner" style="display:none;">
+                    <div class="ai-status-spinner"></div>
+                    <div class="ai-status-text" id="ai-status-text">AI 가우시안 생성 중...</div>
+                </div>
+            </div>
+        </div>
+
         <div id="gallery-sections"></div>
         <div id="loading" hidden>
             <div id="progress-bar"><div id="progress-fill"></div></div>

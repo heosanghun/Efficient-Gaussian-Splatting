@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Efficient Gaussian Splatting - WebGL 3D Viewer & AI Studio</title>
+    <meta http-equiv="refresh" content="0; url=./efficient-gaussian-appearance/viewer/">
+    <link rel="canonical" href="./efficient-gaussian-appearance/viewer/">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0d0d0f;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #049ef4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 24px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+            letter-spacing: -0.5px;
+        }
+        p {
+            font-size: 14px;
+            color: #888899;
+            margin: 0 0 20px 0;
+        }
+        a {
+            color: #049ef4;
+            text-decoration: none;
+            font-size: 14px;
+            border: 1px solid rgba(4, 158, 244, 0.3);
+            padding: 8px 18px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        a:hover {
+            background: rgba(4, 158, 244, 0.15);
+            border-color: #049ef4;
+        }
+    </style>
+    <script>
+        // Immediate client-side redirect
+        window.location.replace("./efficient-gaussian-appearance/viewer/" + window.location.search);
+    </script>
+</head>
+<body>
+    <div class="spinner"></div>
+    <h1>Compact Neural 3D Gaussian Splatting</h1>
+    <p>3D WebGL 뷰어로 연결 중입니다...</p>
+    <a href="./efficient-gaussian-appearance/viewer/">자동으로 이동하지 않으면 여기를 클릭하세요</a>
+</body>
+</html>

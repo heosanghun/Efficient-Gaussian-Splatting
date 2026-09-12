@@ -198,3 +198,191 @@ canvas {
 }
 canvas { cursor: grab; }
 canvas:active { cursor: grabbing; }
+
+/* AI 3DGS Studio Styles */
+.ai-studio-container {
+    width: 100%;
+    max-width: 960px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(78, 161, 255, 0.3);
+    border-radius: 16px;
+    padding: 24px;
+    box-sizing: border-box;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+}
+.ai-studio-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+.ai-studio-badge {
+    background: linear-gradient(135deg, #049ef4, #b44dff);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 4px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.ai-studio-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #ffffff;
+}
+.ai-studio-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+}
+.ai-tab {
+    background: transparent;
+    border: none;
+    color: #8a8f9a;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.ai-tab:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.05);
+}
+.ai-tab.active {
+    color: #ffffff;
+    background: rgba(78, 161, 255, 0.2);
+    border: 1px solid rgba(78, 161, 255, 0.4);
+    font-weight: 600;
+}
+.drop-zone {
+    border: 2px dashed rgba(78, 161, 255, 0.4);
+    border-radius: 12px;
+    padding: 28px 20px;
+    text-align: center;
+    background: rgba(4, 158, 244, 0.02);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.drop-zone:hover, .drop-zone.dragover {
+    border-color: #049ef4;
+    background: rgba(4, 158, 244, 0.08);
+}
+.drop-zone-icon {
+    font-size: 36px;
+    margin-bottom: 8px;
+}
+.drop-zone-text {
+    font-size: 14px;
+    color: #cfd2da;
+    margin-bottom: 4px;
+}
+.drop-zone-hint {
+    font-size: 12px;
+    color: #6a6f7a;
+}
+.image-preview-container {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+.image-preview-container img {
+    max-width: 140px;
+    max-height: 140px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    object-fit: cover;
+}
+.prompt-input-group input {
+    width: 100%;
+    padding: 14px 18px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.4);
+    color: #ffffff;
+    font-size: 14px;
+    font-family: inherit;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.prompt-input-group input:focus {
+    border-color: #049ef4;
+}
+.ai-studio-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 18px;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.api-settings {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #8a8f9a;
+}
+.api-settings input {
+    padding: 6px 12px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    color: #cfd2da;
+    font-size: 12px;
+    font-family: inherit;
+    width: 180px;
+}
+.btn-generate-3d {
+    background: linear-gradient(135deg, #049ef4, #7928ca);
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(4, 158, 244, 0.4);
+    transition: all 0.2s ease;
+}
+.btn-generate-3d:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(4, 158, 244, 0.6);
+}
+.btn-generate-3d:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+.ai-status-banner {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    background: rgba(4, 158, 244, 0.1);
+    border: 1px solid rgba(4, 158, 244, 0.3);
+    border-radius: 8px;
+    font-size: 13px;
+    color: #4ea1ff;
+}
+.ai-status-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(78, 161, 255, 0.3);
+    border-top-color: #4ea1ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

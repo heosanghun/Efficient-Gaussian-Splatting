@@ -94,6 +94,140 @@ function showFatal(msg) {
     console.error(msg);
 }
 
+// AI 3DGS Studio: Drag & Drop image or text prompt to 3DGS generation
+function setupAIStudio() {
+    return new Promise((resolve) => {
+        const tabImg = document.getElementById("tab-btn-image");
+        const tabTxt = document.getElementById("tab-btn-text");
+        const panelImg = document.getElementById("tab-content-image");
+        const panelTxt = document.getElementById("tab-content-text");
+        const dropZone = document.getElementById("drop-zone");
+        const fileInput = document.getElementById("image-file-input");
+        const previewContainer = document.getElementById("image-preview-container");
+        const previewImg = document.getElementById("image-preview");
+        const imageName = document.getElementById("image-name");
+        const promptInput = document.getElementById("text-prompt-input");
+        const backendInput = document.getElementById("backend-url-input");
+        const btnGen = document.getElementById("btn-generate-3d");
+        const banner = document.getElementById("ai-status-banner");
+        const statusText = document.getElementById("ai-status-text");
+
+        if (!tabImg || !btnGen) return;
+
+        let activeTab = "image";
+        let selectedFile = null;
+
+        tabImg.addEventListener("click", () => {
+            activeTab = "image";
+            tabImg.classList.add("active");
+            tabTxt.classList.remove("active");
+            panelImg.style.display = "block";
+            panelTxt.style.display = "none";
+        });
+
+        tabTxt.addEventListener("click", () => {
+            activeTab = "text";
+            tabTxt.classList.add("active");
+            tabImg.classList.remove("active");
+            panelTxt.style.display = "block";
+            panelImg.style.display = "none";
+        });
+
+        dropZone.addEventListener("click", () => fileInput.click());
+
+        dropZone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            dropZone.classList.add("dragover");
+        });
+
+        dropZone.addEventListener("dragleave", () => {
+            dropZone.classList.remove("dragover");
+        });
+
+        dropZone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            dropZone.classList.remove("dragover");
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener("change", () => {
+            if (fileInput.files && fileInput.files[0]) {
+                handleFile(fileInput.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            imageName.textContent = `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImg.src = e.target.result;
+                previewContainer.style.display = "flex";
+            };
+            reader.readAsDataURL(file);
+        }
+
+        btnGen.addEventListener("click", async () => {
+            const backendUrl = (backendInput.value || "http://localhost:8000").replace(/\/+$/, "");
+            banner.style.display = "flex";
+            btnGen.disabled = true;
+
+            try {
+                let resData;
+                if (activeTab === "image") {
+                    if (!selectedFile) {
+                        alert("사진 파일을 먼저 선택하거나 드래그해 주세요.");
+                        banner.style.display = "none";
+                        btnGen.disabled = false;
+                        return;
+                    }
+                    statusText.textContent = "AI GPU 서버로 이미지 전송 중 (3DGS 생성 연산 시작)...";
+                    const formData = new FormData();
+                    formData.append("file", selectedFile);
+                    const resp = await fetch(`${backendUrl}/api/generate/image`, {
+                        method: "POST",
+                        body: formData,
+                    });
+                    if (!resp.ok) throw new Error(`서버 오류 (${resp.status}): ${await resp.text()}`);
+                    resData = await resp.json();
+                } else {
+                    const prompt = promptInput.value.trim();
+                    if (!prompt) {
+                        alert("프롬프트 내용을 입력해 주세요.");
+                        banner.style.display = "none";
+                        btnGen.disabled = false;
+                        return;
+                    }
+                    statusText.textContent = `프롬프트("${prompt}") 기반 3D 가우시안 생성 중...`;
+                    const resp = await fetch(`${backendUrl}/api/generate/text`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ prompt }),
+                    });
+                    if (!resp.ok) throw new Error(`서버 오류 (${resp.status}): ${await resp.text()}`);
+                    resData = await resp.json();
+                }
+
+                statusText.textContent = "생성 완료! WebGL 뷰어 3D 화면으로 로딩 중...";
+                const fullModelUrl = `${backendUrl}${resData.model_url}`;
+                resolve({
+                    name: `AI: ${resData.name}`,
+                    url: fullModelUrl,
+                    override: "neural",
+                });
+            } catch (err) {
+                console.error("AI 3DGS generation error:", err);
+                statusText.textContent = `생성 실패: ${err.message}`;
+                alert(`3D 생성 실패:\n${err.message}\n(백엔드 서버가 http://localhost:8000 에서 실행 중인지 확인하세요)`);
+                banner.style.display = "none";
+                btnGen.disabled = false;
+            }
+        });
+    });
+}
+
 async function main() {
     // --- gallery: pick a model (a manifest card, or ?model=URL) ---
     const gallery = document.getElementById("gallery");
@@ -115,7 +249,10 @@ async function main() {
     while (true) {
         const source = urlModel
             ? { url: urlModel, override: forced }
-            : await chooseModel(sections, manifest, manifest.defaultAppearance ?? "neural", forced ?? "neural");
+            : await Promise.race([
+                chooseModel(sections, manifest, manifest.defaultAppearance ?? "neural", forced ?? "neural"),
+                setupAIStudio(),
+            ]);
         librariesReady ??= loadRenderingLibraries(); // in parallel with the model download
         const label = source.name ?? source.url;
         override = source.override;
