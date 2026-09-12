@@ -139,28 +139,30 @@ def pack_to_ngsplat(
     # Header parameters
     # flags: bit 2 = baked layer0, bit 3-4 = model type (0: neural, 1: sh)
     flags = 4  # neural baked
-    header_model_dims = 8
+    header_model_dims = 16
     header_frequencies = 1
-    degree_mask = 0b1110  # degrees 1..3 active
+    degree_mask = 0b1110  # degrees 1..3 active (3 + 5 + 7 = 15 -> l0In = 16)
     color_activation = 0  # relu
     residual_activation = 1  # tanh
     header_neurons = 16
     nHiddenLayers = 2
 
     # Weight texels: fp16 weights for tiny MLP
-    # For baked layout, layer 0 has 16 direction inputs (4x4 matrix per 4-wide output block)
-    n_weight_texels = 64
+    # Formula for baked: (l0In/4)*neurons + (nHidden-1)*(neurons/4)*neurons + (neurons/4)*3
+    # = (16/4)*16 + (2-1)*(16/4)*16 + (16/4)*3 = 64 + 64 + 12 = 140 texels
+    n_weight_texels = 140
     weight_texels = np.zeros(n_weight_texels * 4, dtype=np.float16)
-    # Small randomized weights
     weight_texels[:] = np.random.randn(n_weight_texels * 4).astype(np.float16) * 0.05
 
-    # Parameter textures (h0_static: 8 fp16 per RGBA32UI texel)
-    param_tex = np.zeros((tex_height, TEX_WIDTH, 4), dtype=np.uint32)
-    # Fill with small latent feature codes
-    feats = np.random.randn(n, 8).astype(np.float16).view(np.uint16)
-    flat_param = param_tex.reshape(-1, 4)
+    # Parameter textures (h0_static: 16 fp16 values per splat -> 2 RGBA32UI textures)
+    param_tex1 = np.zeros((tex_height, TEX_WIDTH, 4), dtype=np.uint32)
+    param_tex2 = np.zeros((tex_height, TEX_WIDTH, 4), dtype=np.uint32)
+    feats = np.random.randn(n, 16).astype(np.float16).view(np.uint16)
+    flat_param1 = param_tex1.reshape(-1, 4)
+    flat_param2 = param_tex2.reshape(-1, 4)
     for i in range(4):
-        flat_param[:n, i] = feats[:, i * 2].astype(np.uint32) | (feats[:, i * 2 + 1].astype(np.uint32) << 16)
+        flat_param1[:n, i] = feats[:, i * 2].astype(np.uint32) | (feats[:, i * 2 + 1].astype(np.uint32) << 16)
+        flat_param2[:n, i] = feats[:, 8 + i * 2].astype(np.uint32) | (feats[:, 8 + i * 2 + 1].astype(np.uint32) << 16)
 
     # Write file
     with open(out_path, "wb") as f:
@@ -189,7 +191,8 @@ def pack_to_ngsplat(
         f.write(struct.pack("<I", n_weight_texels))
         f.write(weight_texels.tobytes())
         f.write(splat_words.tobytes())
-        f.write(param_tex.tobytes())
+        f.write(param_tex1.tobytes())
+        f.write(param_tex2.tobytes())
 
     return out_path
 

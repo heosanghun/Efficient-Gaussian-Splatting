@@ -270,7 +270,9 @@ async function main() {
             model = loadNgsplat(buffer);
             break;
         } catch (err) {
-            console.error(err);
+            console.error("Model load error:", err);
+            showFatal(`Model load failed: ${err.message}`);
+            alert(`3D 모델 로딩 오류:\n${err.message}`);
             loading.hidden = true;
             if (urlModel) throw err; // no gallery to fall back to
         }

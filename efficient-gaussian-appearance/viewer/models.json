@@ -3,6 +3,13 @@
     "appearances": ["sh", "sv", "nasg", "nasgabor", "neural"],
     "models": [
         {
+            "name": "Cloth - Blue Sweater (RTX 4090 Generated)",
+            "group": "Local Offline Demos (Instant)",
+            "variants": {
+                "neural": "models/neural/cloth.ngsplat"
+            }
+        },
+        {
             "name": "Chair (RTX 4090 Generated)",
             "group": "Local Offline Demos (Instant)",
             "variants": {
