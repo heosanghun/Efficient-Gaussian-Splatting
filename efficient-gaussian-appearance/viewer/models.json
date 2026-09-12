@@ -3,6 +3,13 @@
     "appearances": ["sh", "sv", "nasg", "nasgabor", "neural"],
     "models": [
         {
+            "name": "Chair (RTX 4090 Generated)",
+            "group": "Local Offline Demos (Instant)",
+            "variants": {
+                "neural": "models/neural/rtx4090_chair.ngsplat"
+            }
+        },
+        {
             "name": "Chair (Local)",
             "group": "Local Offline Demos (Instant)",
             "variants": {

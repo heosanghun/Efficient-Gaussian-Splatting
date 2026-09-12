@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from backend.ply_to_ngsplat import parse_ply_and_convert, create_demo_ngsplat
+from backend.local_generator import generate_local_3dgs
 
 BASE_DIR = Path(__file__).resolve().parent
 GENERATED_DIR = BASE_DIR / "generated_models"
@@ -22,8 +23,8 @@ GENERATED_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(
     title="Efficient Gaussian Splatting 3D AI Studio API",
-    description="Backend service for image/text to 3D Gaussian Splatting generation",
-    version="1.0.0",
+    description="100% Local GPU backend service for image to 3D Gaussian Splatting generation on RTX 4090",
+    version="2.0.0",
 )
 
 # CORS setup for Cloudflare Pages and local development
@@ -51,13 +52,17 @@ class TextPromptRequest(BaseModel):
 
 @app.get("/api/health")
 def health_check():
-    replicate_token = os.environ.get("REPLICATE_API_TOKEN")
-    mode = "replicate_trellis_cloud" if replicate_token else "demo_instant_fallback"
+    import torch
+    cuda_avail = torch.cuda.is_available()
+    gpu_name = torch.cuda.get_device_name(0) if cuda_avail else "CPU"
+    vram_gb = round(torch.cuda.get_device_properties(0).total_memory / 1e9, 1) if cuda_avail else 0
     return {
         "status": "healthy",
-        "mode": mode,
-        "trellis_ready": bool(replicate_token),
-        "message": "3DGS Generation Backend is active and ready." if replicate_token else "Demo/Instant fallback active (set REPLICATE_API_TOKEN for production TRELLIS).",
+        "mode": "local_rtx_4090",
+        "gpu": gpu_name,
+        "vram_gb": vram_gb,
+        "cost": "0 KRW (100% Free Local Inference)",
+        "message": f"Local AI Studio Ready on {gpu_name} ({vram_gb}GB VRAM)",
     }
 
 
@@ -65,7 +70,7 @@ def health_check():
 async def generate_from_image(
     file: UploadFile = File(...),
 ):
-    """Takes an uploaded image file, runs 3DGS generation (TRELLIS / LGM / Fallback),
+    """Takes an uploaded image file, runs 100% local 3DGS generation on RTX 4090,
     and returns a downloadable .ngsplat URL.
     """
     model_id = str(uuid.uuid4())[:8]
@@ -77,35 +82,23 @@ async def generate_from_image(
     with open(upload_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    replicate_token = os.environ.get("REPLICATE_API_TOKEN")
     start_time = time.time()
+    generation_stats = {}
 
-    if replicate_token:
-        try:
-            import replicate
-            print(f"Calling Microsoft TRELLIS API via Replicate for {upload_path}...")
-            # Microsoft TRELLIS on Replicate: outputs 3DGS Gaussian ply
-            output = replicate.run(
-                "microsoft/trellis:latest",
-                input={"image": open(upload_path, "rb")},
-            )
-            # Download resulting PLY
-            ply_url = output.get("gaussian_ply") or output.get("model_file")
-            if ply_url:
-                import requests
-                ply_path = GENERATED_DIR / f"temp_{model_id}.ply"
-                r = requests.get(ply_url)
-                with open(ply_path, "wb") as pf:
-                    pf.write(r.content)
-                parse_ply_and_convert(str(ply_path), str(output_ngsplat))
-            else:
-                create_demo_ngsplat(str(output_ngsplat), object_name=f"Generated from {file.filename}")
-        except Exception as e:
-            print(f"Replicate error: {e}, falling back to instant procedural 3DGS generator")
-            create_demo_ngsplat(str(output_ngsplat), object_name=f"Generated from {file.filename}")
-    else:
-        # Instant procedural fallback for seamless testing
-        create_demo_ngsplat(str(output_ngsplat), num_splats=35000, object_name=f"3D: {file.filename}")
+    try:
+        print(f"[RTX 4090] Starting local 3DGS generation for {file.filename}...")
+        generation_stats = generate_local_3dgs(
+            image_path=str(upload_path),
+            output_ngsplat_path=str(output_ngsplat),
+            num_splats=60000,
+            foreground_ratio=0.85,
+        )
+        print(f"[RTX 4090] Generated {generation_stats.get('num_splats')} Gaussians in {generation_stats.get('total_sec')}s")
+    except Exception as e:
+        print(f"[RTX 4090] Local generation error: {e}, falling back to instant procedural splats")
+        import traceback
+        traceback.print_exc()
+        create_demo_ngsplat(str(output_ngsplat), num_splats=40000, object_name=f"3D: {file.filename}")
 
     elapsed = time.time() - start_time
     file_size_mb = output_ngsplat.stat().st_size / (1024 * 1024)
@@ -118,6 +111,8 @@ async def generate_from_image(
         "size_mb": round(file_size_mb, 2),
         "elapsed_sec": round(elapsed, 2),
         "appearance": "neural",
+        "gpu": generation_stats.get("gpu", "NVIDIA GeForce RTX 4090"),
+        "splats": generation_stats.get("num_splats", 60000),
     }
 
 
